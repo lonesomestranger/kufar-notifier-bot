@@ -1,0 +1,3 @@
+aiogram
+curl-cffi
+python-dotenv
