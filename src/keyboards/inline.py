@@ -1,6 +1,11 @@
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from src.callback_data.factories import QueryActionCallbackFactory, QueryCallbackFactory
+from src.callback_data.factories import (
+    CityCallbackFactory,
+    QueryActionCallbackFactory,
+    QueryCallbackFactory,
+)
+from src.utils.kufar_cities import CITIES
 
 
 def create_main_menu_keyboard():
@@ -23,8 +28,20 @@ def create_queries_keyboard(user_queries: list):
     return builder.as_markup()
 
 
+def create_city_selection_keyboard():
+    builder = InlineKeyboardBuilder()
+    for name in CITIES:
+        builder.button(text=name, callback_data=CityCallbackFactory(city_name=name))
+    builder.adjust(2)
+    return builder.as_markup()
+
+
 def format_query_details(query: dict) -> str:
     details = [f'<b>Запрос:</b> "{query.get("query")}"']
+
+    city_name = query.get("city", "Все города")
+    details.append(f"<b>Город:</b> {city_name}")
+
     if "price_min" in query or "price_max" in query:
         p_min, p_max = query.get("price_min", "..."), query.get("price_max", "...")
         details.append(f"<b>Цена:</b> от {p_min} до {p_max} BYN")
@@ -40,6 +57,7 @@ def create_manage_query_keyboard(query_index: int):
     actions = {
         "Установить цену": "set_price",
         "Установить лимит": "set_limit",
+        "🏙️ Изменить город": "set_city",
         "Поиск в заголовках": "toggle_search",
         "❌ Удалить запрос": "delete_query",
     }
@@ -51,5 +69,11 @@ def create_manage_query_keyboard(query_index: int):
             ),
         )
     builder.button(text="« Назад к списку", callback_data="my_queries")
-    builder.adjust(2, 1, 1)
+    builder.adjust(2, 1, 1, 1)
+    return builder.as_markup()
+
+
+def create_ad_link_keyboard(url: str):
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🔗 Смотреть на Kufar", url=url)
     return builder.as_markup()

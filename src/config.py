@@ -16,7 +16,12 @@ QUERIES_FILE = "data/queries.json"
 CACHED_ADS_FILE = "data/cached_ads.json"
 
 # You can adjust the delay between queries in seconds, if you need.
-DELAY_BETWEEN_QUERIES = int(os.getenv("DELAY_BETWEEN_QUERIES", 5))
+DELAY_BETWEEN_QUERIES = int(os.getenv("DELAY_BETWEEN_QUERIES", 1))
 DELAY_MAIN_LOOP = int(
-    os.getenv("DELAY_MAIN_LOOP", 60)
+    os.getenv("DELAY_MAIN_LOOP", 30)
 )  # seconds before the next parsing attempt
+
+# "WARNING" - silent mode, only errors and important warnings.
+# "DEBUG" - detailed mode for debugging with all timers.
+LOG_LEVEL = "WARNING"
+KUFAR_BEARER_TOKEN = os.getenv("KUFAR_BEARER_TOKEN")

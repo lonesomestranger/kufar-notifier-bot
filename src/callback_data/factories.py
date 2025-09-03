@@ -8,3 +8,7 @@ class QueryCallbackFactory(CallbackData, prefix="query"):
 class QueryActionCallbackFactory(CallbackData, prefix="query_action"):
     action: str
     query_index: int
+
+
+class CityCallbackFactory(CallbackData, prefix="city"):
+    city_name: str

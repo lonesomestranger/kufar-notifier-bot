@@ -1,14 +1,21 @@
+import logging
+
 from aiogram import F, Router
 from aiogram.enums import ParseMode
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
+from curl_cffi.requests import AsyncSession
 
-from src.callback_data.factories import QueryActionCallbackFactory, QueryCallbackFactory
+from src.callback_data.factories import (
+    CityCallbackFactory,
+    QueryActionCallbackFactory,
+    QueryCallbackFactory,
+)
 from src.keyboards import inline as keyboards
 from src.keyboards import reply as reply_keyboards
 from src.states.query_states import AddQuery, QuerySettings
-from src.utils import data_manager
+from src.utils import data_manager, kufar_api
 
 router = Router()
 
@@ -61,17 +68,52 @@ async def add_query_callback(callback: CallbackQuery, state: FSMContext):
 
 @router.message(AddQuery.waiting_for_text)
 async def process_add_query_text(message: Message, state: FSMContext):
-    await state.clear()
-    query_text = message.text
-    query_data = {"query": query_text}
-    user_id = str(message.from_user.id)
+    await state.update_data(query_text=message.text)
+    await state.set_state(AddQuery.waiting_for_city)
+    await message.answer(
+        "Отлично! Теперь выберите город для поиска:",
+        reply_markup=keyboards.create_city_selection_keyboard(),
+    )
+
+
+@router.callback_query(AddQuery.waiting_for_city, CityCallbackFactory.filter())
+async def process_add_query_city(
+    callback: CallbackQuery, callback_data: CityCallbackFactory, state: FSMContext
+):
+    data = await state.get_data()
+    query_text = data["query_text"]
+    city_name = callback_data.city_name
+
+    query_data = {"query": query_text, "city": city_name}
+
+    logging.info(f"Добавлен новый запрос {query_data}. Прогреваем для него кеш...")
+    try:
+        async with AsyncSession() as session:
+            initial_ads = await kufar_api.get_new_ads(session, query_data)
+            if initial_ads:
+                initial_ids = {ad.get("ad_id") for ad in initial_ads if ad.get("ad_id")}
+                cached_ads = data_manager.load_cached_ads()
+                cached_ads.update(initial_ids)
+                data_manager.save_cached_ads(cached_ads)
+                logging.info(
+                    f"Кеш для нового запроса прогрет. Добавлено {len(initial_ids)} ID."
+                )
+    except Exception as e:
+        logging.error(f"Не удалось прогреть кеш для нового запроса: {e}")
+
+    user_id = str(callback.from_user.id)
     all_queries = data_manager.load_queries()
     user_queries = all_queries.get(user_id, [])
     user_queries.append(query_data)
     all_queries[user_id] = user_queries
     data_manager.save_queries(all_queries)
-    await message.answer(f"Запрос «{query_text}» успешно добавлен.")
-    await show_main_menu(message, state)
+
+    await state.clear()
+    await callback.message.delete()
+    await callback.message.answer(
+        f"Запрос «{query_text}» для города «{city_name}» успешно добавлен."
+    )
+    await show_main_menu(callback.message, state)
 
 
 @router.callback_query(QueryCallbackFactory.filter())
@@ -133,7 +175,9 @@ async def toggle_search_action(
 
 
 @router.callback_query(
-    QueryActionCallbackFactory.filter(F.action.in_({"set_price", "set_limit"}))
+    QueryActionCallbackFactory.filter(
+        F.action.in_({"set_price", "set_limit", "set_city"})
+    )
 )
 async def set_parameter_action(
     callback: CallbackQuery,
@@ -154,6 +198,34 @@ async def set_parameter_action(
         await callback.message.edit_text(
             "Введите макс. количество объявлений (например, `5`)."
         )
+    elif action == "set_city":
+        await state.set_state(QuerySettings.waiting_for_city)
+        await callback.message.edit_text(
+            "Выберите новый город для этого запроса:",
+            reply_markup=keyboards.create_city_selection_keyboard(),
+        )
+
+
+@router.callback_query(QuerySettings.waiting_for_city, CityCallbackFactory.filter())
+async def process_edit_query_city(
+    callback: CallbackQuery, callback_data: CityCallbackFactory, state: FSMContext
+):
+    data = await state.get_data()
+    q_index = data["query_index"]
+    city_name = callback_data.city_name
+
+    user_id = str(callback.from_user.id)
+    all_queries = data_manager.load_queries()
+    user_queries = all_queries.get(user_id, [])
+
+    if 0 <= q_index < len(user_queries):
+        user_queries[q_index]["city"] = city_name
+        all_queries[user_id] = user_queries
+        data_manager.save_queries(all_queries)
+        await callback.answer(f"Город изменен на «{city_name}».")
+
+    await state.clear()
+    await manage_query(callback, QueryCallbackFactory(query_index=q_index))
 
 
 @router.message(QuerySettings.waiting_for_price)
